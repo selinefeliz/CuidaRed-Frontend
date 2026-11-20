@@ -1,5 +1,13 @@
 # Cambios actuales
 
+## 20/11/2026 — Panel de visitas para la organización
+
+- Administración y Coordinación disponen de un panel con solicitudes pendientes, indicadores del mes, comparación semanal y agenda diaria. Los totales recorren todas las páginas del período; una consulta incompleta se informa como error y no se presenta como un total válido. La agenda se actualiza cada 30 segundos con la pestaña visible, al recuperar el foco y mediante el botón de actualización.
+- El calendario permite alternar mes y semana, navegar por fechas y abrir las visitas. Los estados combinan color con texto; en móvil se utiliza un selector de fecha y una agenda legible, sin comprimir siete columnas. Las solicitudes pendientes se muestran primero y abren directamente su revisión.
+- La programación se divide en horario y selección de personas. Conserva los datos entre pasos, valida el intervalo y presenta un resumen con responsables y citas existentes. Las solicitudes institucionales conservan su flujo propio de autorización con datos del grupo. Se mantienen los permisos, la programación recurrente y la captura de campo sin conexión.
+- Se utiliza Inter, la paleta institucional y Lucide, sin dependencias adicionales. Las pruebas cubren navegación, revisión de solicitudes, paginación de más de 100 visitas, conservación de los datos del formulario y adaptación hasta 320 px. Los datos sintéticos pertenecen únicamente a las pruebas; la interfaz conectada consume la API de la cuenta activa.
+- Validación: 154 recorridos Playwright con servicios simulados, 118 pruebas de componentes, tipos, compilación y comprobación de caché PWA aprobados. Los textos de los estados del calendario superan 4.5:1 de contraste sobre sus respectivos fondos.
+
 ## 19/11/2026 — Integración de visitas y acceso conectado
 
 - La portada, las solicitudes de visita y el calendario conviven con Backoffice, la recuperación de sesión al abrir avisos y Web Push. Se conservan la programación recurrente, la revisión de evidencias y la sincronización de necesidades.

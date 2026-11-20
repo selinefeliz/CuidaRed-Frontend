@@ -362,6 +362,7 @@ test('ID04: programa y autoriza una visita con adultos y visitantes seleccionado
   await page.getByLabel(/^Hora de inicio/).fill('09:00')
   await page.getByLabel(/^Hora de fin/).fill('10:00')
   await page.getByLabel(/^Motivo de la visita/).fill(visita.razon)
+  await page.getByRole('button', { name: 'Continuar con personas' }).click()
   const programar = page.getByRole('button', { name: 'Guardar visita pendiente', exact: true })
   const adultoSeleccion = page.getByRole('checkbox', { name: 'Juana Prueba' })
   await expect(programar).toBeDisabled()

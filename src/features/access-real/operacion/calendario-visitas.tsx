@@ -24,17 +24,17 @@ export function CalendarioVisitas({ base, token, fecha, excluir, abrir }: {
   if (!fecha) return null
   const citas = consulta.datos?.data.filter((cita) => cita.visita_id !== excluir && ['programada', 'en_curso'].includes(cita.estado)) ?? []
 
-  return <section aria-label="Calendario de disponibilidad" className="grid gap-2 rounded-sm border border-line-soft bg-bg p-4">
-    <h4 className="flex items-center gap-2 font-semibold text-navy"><CalendarDays size={18} aria-hidden /> Visitas del {fechaCorta(fecha)}</h4>
+  return <section aria-label="Calendario de disponibilidad" className="grid min-w-0 gap-3 text-sm">
+    <h4 className="flex items-center gap-2 text-sm font-semibold text-navy"><CalendarDays size={17} aria-hidden /> Visitas del {fechaCorta(fecha)}</h4>
     <Estado consulta={consulta} />
     {consulta.datos && citas.length === 0 && <p className="text-sm text-ink-2">No hay citas activas en esta página del calendario.</p>}
-    {citas.length > 0 && <ul className="divide-y divide-line-soft text-sm text-ink-2">
+    {citas.length > 0 && <ul className="grid min-w-0 gap-2 text-sm text-ink-2">
       {citas.map((cita) => {
         const horario = [cita.hora_programada, cita.hora_fin_programada].filter((hora): hora is string => !!hora).map(hhmmA12).join(' – ')
         const responsables = cita.participantes.map(({ nombres, apellidos }) => [nombres, apellidos].filter(Boolean).join(' ')).filter(Boolean).join(', ')
-        return <li key={cita.visita_id} className="py-2">
-          <strong className="text-navy">{horario || 'Sin hora'}</strong>{responsables && ` · ${responsables}`}
-          {cita.pendiente_autorizacion && <span className="ml-2 text-warning-700">Por autorizar</span>}
+        return <li key={cita.visita_id} className={`grid min-w-0 gap-1 rounded-sm border-l-4 px-3 py-2 ${cita.pendiente_autorizacion ? 'border-warning-700 bg-warning-100' : 'border-blue bg-blue-100'}`}>
+          <strong className="text-xs tabular-nums text-navy">{horario || 'Sin hora'}</strong>{responsables && <span className="text-xs wrap-anywhere">{responsables}</span>}
+          <span className={cita.pendiente_autorizacion ? 'text-xs font-medium text-warning-700' : 'text-xs font-medium text-navy'}>{cita.pendiente_autorizacion ? 'Por autorizar' : cita.estado === 'en_curso' ? 'En curso' : 'Autorizada'}</span>
           {abrir && <button type="button" onClick={() => abrir(cita.visita_id)} className="ml-2 min-h-12 px-2 font-semibold text-navy underline underline-offset-4">Abrir visita</button>}
         </li>
       })}

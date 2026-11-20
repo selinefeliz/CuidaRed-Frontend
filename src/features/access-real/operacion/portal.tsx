@@ -137,6 +137,7 @@ export function Portal({ token, usuarioId, cola }: { token: string; usuarioId: s
   const props = cuenta && base ? { base, token, cuenta, usuarioId } : undefined
   const titulo = seccion === 'cuenta' ? cuenta?.nombre ?? 'Cuenta de CuidaRed'
     : actual?.id === 'configuracion' && cuenta?.tipo === 'organizacion' ? 'Configurar organización'
+      : actual?.id === 'visitas' && cuenta?.permisos.includes('visitas:autorizar') ? 'Visitas'
       : actual?.titulo ?? 'Cuenta de CuidaRed'
   const IconoConexion = enLinea ? Wifi : WifiOff
   if (props && actual?.id === 'miembros') return <PantallaMiembros token={token} cuenta={props.cuenta} usuarioId={usuarioId} volver={`${raiz}/cuenta`} />

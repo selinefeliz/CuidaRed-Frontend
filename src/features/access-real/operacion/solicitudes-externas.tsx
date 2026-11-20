@@ -3,17 +3,18 @@
  * Módulo: access-real. © 2026 Equipo CuidaRed – INTEC.
  */
 import { useState } from 'react'
-import { ArrowLeft, Inbox } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarCheck2, Inbox, UserRound } from 'lucide-react'
 import { Badge, Button, Card, SelectField } from '@/components/ui'
 import { fechaCorta, hhmmA12 } from '@/domain/dates'
 import { api } from '../client'
 import { campo, Estado, Formulario, idRuta, Paginador, useConexionReal, usePagina } from './controles'
 import { VentanaVisita } from './calendario-visitas'
 import { leerVentana } from './visitas-fechas'
+import { fechaDominicana } from './visitas-fechas'
 import { avisoPerfilCuidador, responsablesVisita } from './visitas-responsables'
 import type { AdultoNombre, Candidato } from './visitas'
 
-interface Solicitud {
+export interface SolicitudExterna {
   solicitud_visita_id: string
   estado: 'pendiente' | 'autorizada' | 'rechazada' | 'realizada' | 'cancelada'
   visitante: { nombres: string; apellidos: string; telefono?: string; correo?: string | null }
@@ -30,6 +31,7 @@ interface Solicitud {
   observacion_visitante?: string | null
   visita_id?: string | null
 }
+type Solicitud = SolicitudExterna
 
 const estados = [
   { value: 'pendiente', label: 'Pendientes' },
@@ -58,8 +60,12 @@ function Autorizar({ base, token, item, volver, listo }: {
       })
       listo(visita.visita_id)
     }}>
-    <p className="text-sm text-ink-2">{item.visitante.nombres} {item.visitante.apellidos}{institucional ? <> representa a <strong>{item.entidad_visitante}</strong>.</> : <> solicita visitar a <strong>{item.persona_a_visitar}</strong>.</>}</p>
-    <p className="text-sm text-ink-2">{item.cantidad_visitantes ?? 1} visitante(s). {item.aporte_previsto && <>Aporte previsto · {item.aporte_previsto}</>}</p>
+    <div className="grid gap-2 rounded-sm border-l-4 border-blue bg-blue-100 p-4"><p className="text-sm font-semibold text-navy">{item.visitante.nombres} {item.visitante.apellidos}{institucional ? <> · {item.entidad_visitante}</> : <> · Visita personal</>}</p>
+      <p className="text-sm text-ink-2">{institucional ? `${item.cantidad_visitantes ?? 1} visitantes` : `Persona a visitar: ${item.persona_a_visitar}`}</p>
+      <p className="text-xs text-ink-2">Horario solicitado: {fechaCorta(item.fecha_propuesta)} · {hhmmA12(item.hora_propuesta)}</p>
+      {item.aporte_previsto && <p className="text-sm text-ink-2"><strong>Aporte previsto</strong> · {item.aporte_previsto}</p>}
+    </div>
+    {item.fecha_propuesta < fechaDominicana() && <p className="rounded-sm bg-warning-100 p-3 text-sm text-warning-700">La fecha propuesta ya pasó. Confirma una fecha nueva antes de autorizar.</p>}
     {institucional && <p className="text-sm text-ink-2">Esta visita se agenda para la organización. El responsable asignado registrará la actividad.</p>}
     {!institucional && <><SelectField label="Persona mayor de la organización" placeholder="Selecciona una persona" value={adulto?.envejeciente_id ?? ''}
       options={[...new Map([...(adultos.datos?.data ?? []), ...(adulto ? [adulto] : [])].map((row) => [row.envejeciente_id, row])).values()]
@@ -78,19 +84,19 @@ function Autorizar({ base, token, item, volver, listo }: {
   </Formulario>
 }
 
-export function SolicitudesExternas({ base, token, volver, abrirVisita }: {
-  base: string; token: string; volver: () => void; abrirVisita: (id: string) => void
+export function SolicitudesExternas({ base, token, volver, abrirVisita, inicial }: {
+  base: string; token: string; volver: () => void; abrirVisita: (id: string) => void; inicial?: Solicitud
 }) {
   const [filtro, setFiltro] = useState('pendiente')
   const [revision, setRevision] = useState(0)
-  const [seleccion, setSeleccion] = useState<{ item: Solicitud; accion: 'autorizar' | 'rechazar' }>()
+  const [seleccion, setSeleccion] = useState<{ item: Solicitud; accion: 'autorizar' | 'rechazar' } | undefined>(inicial ? { item: inicial, accion: 'autorizar' } : undefined)
   const [aviso, setAviso] = useState('')
   const enLinea = useConexionReal()
   const ruta = base + '/solicitudes-visita'
   const listado = usePagina<Solicitud>(ruta, token, revision, { filters: { estado: filtro } })
-  return <section aria-labelledby="solicitudes-externas" className="grid gap-4">
+  return <section aria-labelledby="solicitudes-externas" className="grid min-w-0 gap-4 [&_button]:text-sm [&_label]:text-sm">
     <Button variant="ghost" className="justify-self-start" icon={<ArrowLeft size={18} aria-hidden />} onClick={volver}>Volver a visitas</Button>
-    <h2 id="solicitudes-externas" className="flex items-center gap-2 text-xl font-bold text-navy"><Inbox size={22} aria-hidden /> Solicitudes externas</h2>
+    <header className="flex flex-wrap items-center justify-between gap-3"><div><h2 id="solicitudes-externas" className="flex items-center gap-2 text-xl font-bold text-navy"><Inbox size={21} aria-hidden /> Solicitudes externas</h2><p className="mt-2 text-sm text-ink-2">Revisa los datos del visitante y confirma un horario con tu equipo.</p></div>{!seleccion && listado.datos && <p className="text-sm font-semibold text-ink">{listado.datos.meta.total} {filtro === 'pendiente' ? 'por revisar' : 'solicitudes'}</p>}</header>
     {aviso && <p role="status" className="rounded-sm bg-success-100 p-3 text-success-700">{aviso}</p>}
     {seleccion ? (
       seleccion.accion === 'autorizar'
@@ -107,8 +113,8 @@ export function SolicitudesExternas({ base, token, volver, abrirVisita }: {
         <SelectField label="Estado de la solicitud" options={estados} value={filtro} onChange={(event) => { setFiltro(event.target.value); setAviso('') }} />
       </div>
       <Estado consulta={listado} vacio={listado.datos?.data.length === 0 ? 'No hay solicitudes en este estado.' : undefined} />
-      {listado.datos?.data.map((item) => <Card key={item.solicitud_visita_id} className="grid gap-3">
-        <h3 className="text-lg font-semibold">{item.visitante.nombres} {item.visitante.apellidos}</h3>
+      {listado.datos?.data.map((item) => <Card key={item.solicitud_visita_id} className={`grid min-w-0 gap-3 border-l-4 ${item.estado === 'pendiente' ? 'border-l-warning-700' : 'border-l-blue'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="flex min-w-0 items-start gap-2 text-base font-semibold">{item.tipo_visita === 'institucional' ? <Building2 size={19} className="mt-0.5 shrink-0 text-navy" aria-hidden /> : <UserRound size={19} className="mt-0.5 shrink-0 text-navy" aria-hidden />}<span className="wrap-anywhere">{item.visitante.nombres} {item.visitante.apellidos}</span></h3><Badge tone={item.estado === 'pendiente' ? 'warning' : item.estado === 'rechazada' || item.estado === 'cancelada' ? 'danger' : 'success'}>{estados.find((estado) => estado.value === item.estado)?.label ?? item.estado}</Badge></div>
         <p className="text-sm text-ink-2">{item.tipo_visita === 'institucional' ? `Visita de ${item.entidad_visitante}` : `Quiere visitar a ${item.persona_a_visitar}`} · {fechaCorta(item.fecha_propuesta)} · {hhmmA12(item.hora_propuesta)}</p>
         <p className="text-sm text-ink-2">{item.cantidad_visitantes ?? 1} visitante(s)</p>
         {item.aporte_previsto && <p className="text-sm text-ink-2"><strong>Aporte previsto</strong> · {item.aporte_previsto}</p>}
@@ -118,8 +124,8 @@ export function SolicitudesExternas({ base, token, volver, abrirVisita }: {
         {item.observacion_visitante && <div><Badge tone="success">Observación del visitante</Badge><p className="mt-1 whitespace-pre-line">{item.observacion_visitante}</p></div>}
         <div className="flex flex-wrap gap-2">
           {item.estado === 'pendiente' && <>
-            <Button disabled={!enLinea} onClick={() => setSeleccion({ item, accion: 'autorizar' })}>Revisar y autorizar</Button>
-            <Button variant="outline" onClick={() => setSeleccion({ item, accion: 'rechazar' })}>Rechazar</Button>
+            <Button size="sm" icon={<CalendarCheck2 size={17} aria-hidden />} disabled={!enLinea} onClick={() => setSeleccion({ item, accion: 'autorizar' })}>Revisar y autorizar</Button>
+            <Button size="sm" variant="outline" onClick={() => setSeleccion({ item, accion: 'rechazar' })}>Rechazar</Button>
           </>}
           {item.visita_id && <Button variant="outline" onClick={() => abrirVisita(item.visita_id!)}>Abrir visita</Button>}
         </div>

@@ -3,29 +3,28 @@
  * © 2026 Equipo CuidaRed – INTEC.
  */
 import { useState } from 'react'
-import { ArrowLeft, CalendarDays, CalendarPlus, CircleUserRound, Frown, Meh, Smile, WifiOff, X } from 'lucide-react'
+import { ArrowLeft, CalendarDays, CalendarPlus, CircleUserRound, Frown, Meh, Smile, WifiOff } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
-import { Badge, Button, Card, Checkbox, CheckboxGroup, IconTile, Segmented, SelectField, TextareaField, TextField, type Tone } from '@/components/ui'
+import { Badge, Button, Card, CheckboxGroup, IconTile, Segmented, SelectField, TextareaField, type Tone } from '@/components/ui'
 import { ASPECTOS_VISITA } from '@/domain/catalogos'
 import { fechaCorta, hhmmA12 } from '@/domain/dates'
-import { fechasDeSerie, MAX_OCURRENCIAS, type Repeticion } from '@/domain/recurrencia'
-import { DIAS_SEMANA } from '@/features/agenda/lib/fechas'
 import type { CollectionQuery } from '@/lib/api-contract'
 import { api, type CuentaMe, type RolCuenta } from '../client'
-import { campo, Estado, Formulario, idRuta, Paginador, useConexionReal, useDatos, usePagina, type Campo } from './controles'
+import { campo, Estado, Formulario, idRuta, Paginador, useConexionReal, useDatos, usePagina } from './controles'
 import type { ColaOperaciones } from './cola-operaciones'
 import { Evidencias } from './visitas-evidencias'
-import { CalendarioVisitas, VentanaVisita } from './calendario-visitas'
-import { SolicitudesExternas } from './solicitudes-externas'
+import { VentanaVisita } from './calendario-visitas'
+import { SolicitudesExternas, type SolicitudExterna } from './solicitudes-externas'
 import { fechaDominicana, leerVentana } from './visitas-fechas'
-import { avisoPerfilCuidador, responsablesVisita } from './visitas-responsables'
+import { PanelVisitas } from './panel-visitas'
+import { ProgramarVisita } from './programar-visita'
 
 export interface AdultoNombre { envejeciente_id: string; nombres: string; apellidos: string }
 export interface Candidato { usuario_id: string; membresia_id: string; cuidador_id: string | null; nombre: string; rol: RolCuenta }
 export interface OperacionProps { base: string; token: string; cuenta: CuentaMe; usuarioId: string }
 
-interface Persona { usuario_id: string; nombres?: string; apellidos?: string }
-interface Visita {
+interface Persona { usuario_id: string; nombres?: string; apellidos?: string; nombre?: string }
+export interface Visita {
   tipo_visita?: 'personal' | 'institucional'
   entidad_visitante?: string | null
   cantidad_visitantes?: number | null
@@ -72,104 +71,6 @@ const nombre = (persona: { nombres?: string; apellidos?: string }) => [persona.n
 const hora = (valor: string | null | undefined) => valor ? hhmmA12(valor) : 'Sin hora'
 const aspectosVisita = [...ASPECTOS_VISITA, { value: 'caidas', label: 'Caídas' }]
 const fechaEfectiva = new Intl.DateTimeFormat('es-DO', { timeZone: 'America/Santo_Domingo', dateStyle: 'medium', timeStyle: 'short' })
-
-type Opcion = { id: string; etiqueta: string }
-type PaginaOpciones = Pick<ReturnType<typeof usePagina>, 'pagina' | 'cambiar'> & { total: number }
-
-function SeleccionMultiple({ titulo, opciones, seleccionadas, maximo, pagina, cambiar }: {
-  titulo: string; opciones: Opcion[]; seleccionadas: Opcion[]; maximo: number; pagina?: PaginaOpciones
-  cambiar: (opciones: Opcion[]) => void
-}) {
-  return (
-    <fieldset className="grid min-w-0 gap-2 rounded-sm border border-line-soft bg-bg p-3">
-      <legend className="px-1 text-sm font-semibold">{titulo} ({seleccionadas.length}/{maximo})</legend>
-      {!!seleccionadas.length && <ul aria-label={`${titulo} seleccionados`} className="flex flex-wrap gap-1.5">
-        {seleccionadas.map((opcion) => <li key={opcion.id} className="min-w-0 max-w-full">
-          <button type="button" aria-label={`Quitar ${opcion.etiqueta}`} className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-pill bg-blue-100 px-3 text-left text-sm font-semibold text-navy hover:bg-blue-200"
-            onClick={() => cambiar(seleccionadas.filter((seleccionada) => seleccionada.id !== opcion.id))}>
-            <span className="wrap-anywhere">{opcion.etiqueta}</span><X size={16} className="shrink-0" aria-hidden />
-          </button>
-        </li>)}
-      </ul>}
-      {opciones.map((opcion) => {
-        const marcada = seleccionadas.some((seleccionada) => seleccionada.id === opcion.id)
-        return <Checkbox key={opcion.id} label={opcion.etiqueta} checked={marcada}
-          disabled={!marcada && seleccionadas.length >= maximo}
-          onChange={() => cambiar(marcada ? seleccionadas.filter((seleccionada) => seleccionada.id !== opcion.id) : [...seleccionadas, opcion])} />
-      })}
-      {pagina && <Paginador pagina={pagina.pagina} total={pagina.total} cambiar={pagina.cambiar} />}
-    </fieldset>
-  )
-}
-
-function Programar({ base, token, cuenta, listo, volver }: Pick<OperacionProps, 'base' | 'token' | 'cuenta'> & { listo: (visita: Visita, cantidad?: number) => void; volver: () => void }) {
-  const adultos = usePagina<AdultoNombre>(`${base}/envejecientes`, token, 0, { filters: { estado: 'activo' } })
-  const personas = usePagina<Candidato>(`${base}/candidatos/visita`, token)
-  const { disponibles, faltanPerfiles } = responsablesVisita(personas.datos?.data)
-  const [seleccionAdultos, setAdultos] = useState<Opcion[]>([])
-  const [seleccionPersonas, setPersonas] = useState<Opcion[]>([])
-  const [frecuencia, setFrecuencia] = useState<Repeticion>('ninguna')
-  const [dias, setDias] = useState<string[]>([])
-  const recurrentes = cuenta.funcionalidades?.includes('visitas_recurrentes')
-  const enLinea = useConexionReal()
-  const campos: Campo[] = [
-    { name: 'razon', label: 'Motivo de la visita', min: 3, max: 120 },
-    { name: 'notas', label: 'Notas (opcional)', type: 'textarea', optional: true, max: 300 },
-  ]
-  const prepararPagina = (consulta: typeof adultos | typeof personas) =>
-    consulta.datos && { pagina: consulta.pagina, total: consulta.datos.meta.totalPages, cambiar: consulta.cambiar }
-
-  return <Formulario titulo="Programar visita" campos={campos} accion={frecuencia === 'ninguna' ? 'Guardar visita pendiente' : 'Programar serie'} cancelar={volver} disabled={!enLinea}
-    submitDisabled={!seleccionAdultos.length || !seleccionPersonas.length}
-    enviar={async (datos) => {
-      if (!seleccionAdultos.length || !seleccionPersonas.length) throw new Error('Selecciona al menos un adulto y una persona visitante.')
-      const { fecha, hora, hora_fin_programada } = leerVentana(datos)
-      const entrada = {
-        fecha, hora_programada: hora, hora_fin_programada, razon: campo(datos, 'razon'),
-        notas: campo(datos, 'notas') || undefined, envejeciente_ids: seleccionAdultos.map((adulto) => adulto.id),
-        participante_ids: seleccionPersonas.map((persona) => persona.id),
-      }
-      if (frecuencia === 'ninguna') {
-        listo(await api<Visita>(`${base}/visitas`, token, 'POST', { ...entrada, autorizar: false }))
-        return
-      }
-      const hasta = campo(datos, 'hasta')
-      const diasSemana = dias.map(Number)
-      const fechas = fechasDeSerie({ fechaProgramada: entrada.fecha, fechaFin: hasta, repeticion: frecuencia, diasSemana })
-      if (!fechas.length || fechas.length > MAX_OCURRENCIAS) {
-        throw new Error(`Elige un intervalo de 1 a ${MAX_OCURRENCIAS} visitas.`)
-      }
-      const serie = await api<{ visitas: Visita[] }>(`${base}/visitas/recurrentes`, token, 'POST', {
-        ...entrada,
-        repeticion: { frecuencia, hasta, ...(frecuencia === 'semanal' ? { dias_semana: diasSemana.map((dia) => dia || 7) } : {}) },
-      })
-      const primera = serie.visitas[0]
-      if (!primera) throw new Error('No se recibió la serie programada.')
-      listo(primera, serie.visitas.length)
-    }}>
-    <VentanaVisita base={base} token={token} />
-    {recurrentes && <>
-      <SelectField label="Repetición" value={frecuencia} onChange={(event) => setFrecuencia(event.target.value as Repeticion)}
-        options={[{ value: 'ninguna', label: 'No se repite' }, { value: 'diaria', label: 'Diaria' }, { value: 'semanal', label: 'Semanal' }]} />
-      {frecuencia !== 'ninguna' && <TextField label="Se repite hasta" type="date" name="hasta" min={fechaDominicana()} required
-        hint={`Máximo ${MAX_OCURRENCIAS} visitas.`} />}
-      {frecuencia === 'semanal' && <CheckboxGroup label="Días de la semana"
-        options={DIAS_SEMANA.map((dia) => ({ value: String(dia.value), label: dia.largo }))} value={dias} onChange={setDias} />}
-    </>}
-    <div className="grid gap-2">
-      <Estado consulta={adultos} vacio={adultos.datos?.data.length === 0 ? 'Sin adultos activos disponibles.' : undefined} />
-      <SeleccionMultiple titulo="Adultos de la visita" opciones={adultos.datos?.data.map((adulto) => ({ id: adulto.envejeciente_id, etiqueta: nombre(adulto) })) ?? []}
-        seleccionadas={seleccionAdultos} maximo={4} pagina={prepararPagina(adultos)} cambiar={setAdultos} />
-    </div>
-    <div className="grid gap-2">
-      <Estado consulta={personas} vacio={personas.datos && !disponibles.length ? 'No hay responsables disponibles en esta página.' : undefined} />
-      {faltanPerfiles && <p className="text-sm text-ink-2">{avisoPerfilCuidador}</p>}
-      <SeleccionMultiple titulo="Cuidadores o voluntarios responsables" opciones={disponibles.map((persona) => ({ id: persona.usuario_id, etiqueta: persona.nombre }))}
-        seleccionadas={seleccionPersonas} maximo={3} pagina={prepararPagina(personas)} cambiar={setPersonas} />
-    </div>
-    <p className="text-sm text-muted md:col-span-2">La visita aparecerá en el calendario. El equipo asignado podrá iniciarla después de la autorización.</p>
-  </Formulario>
-}
 
 function RegistroVisita({ visita, voluntario, enviar, volver, deshabilitado }: {
   visita: Visita; voluntario: boolean; enviar: (datos: object) => Promise<void>; volver: () => void; deshabilitado: boolean
@@ -285,6 +186,7 @@ export function Visitas({ base, token, cuenta, usuarioId, cola }: OperacionProps
   const [vista, setVista] = useState<Vista>('hoy')
   const [historial, setHistorial] = useState('completada')
   const [diaCalendario, setDiaCalendario] = useState(fechaDominicana)
+  const [solicitudInicial, setSolicitudInicial] = useState<SolicitudExterna>()
   const [aviso, setAviso] = useState('')
   const enLinea = useConexionReal()
   const id = params.get('visita')
@@ -293,6 +195,7 @@ export function Visitas({ base, token, cuenta, usuarioId, cola }: OperacionProps
   const puedeRevisarSolicitudes = cuenta.tipo === 'organizacion' && permite(cuenta, 'visitas:autorizar')
   const viendoSolicitudes = !id && accion === 'solicitudes' && puedeRevisarSolicitudes
   const viendoCalendario = !id && accion === 'calendario' && puedeRevisarSolicitudes
+  const viendoHistorial = !id && accion === 'historial' && puedeRevisarSolicitudes
   const programando = accion === 'programar' && puedeProgramar
   const actualizar = () => setRevision((r) => r + 1)
   const recarga = revision + cola.revision
@@ -304,13 +207,14 @@ export function Visitas({ base, token, cuenta, usuarioId, cola }: OperacionProps
   const filtrosHoy = { desde: hoy, hasta: hoy }
   const filtrosProximas = { desde: manana, estado: 'programada' }
   const historialAbierto = historial === 'programada' || historial === 'en_curso'
-  const consulta: Omit<CollectionQuery, 'page'> = vista === 'historial'
+  const consulta: Omit<CollectionQuery, 'page'> = vista === 'historial' || viendoHistorial
     ? { filters: { estado: historial, ...(historialAbierto ? { hasta: fechaDominicana(-1) } : {}) }, sort: ['-fecha_evento'] }
     : { filters: vista === 'hoy' ? filtrosHoy : filtrosProximas, sort: ['fecha', 'hora_programada'] }
-  const listado = usePagina<Visita>(rutaListado, token, recarga, consulta)
-  const total = usePagina<Visita>(mostrandoListado ? rutaListado : null, token, recarga, { limit: 1 })
-  const hoyProgramadas = usePagina<Visita>(mostrandoListado ? rutaListado : null, token, recarga, { limit: 1, filters: { ...filtrosHoy, estado: 'programada' } })
-  const proximas = usePagina<Visita>(mostrandoListado && vista !== 'proximas' ? rutaListado : null, token, recarga, { limit: 1, filters: filtrosProximas })
+  const usarListado = !puedeRevisarSolicitudes || viendoHistorial
+  const listado = usePagina<Visita>(usarListado ? rutaListado : null, token, recarga, consulta)
+  const total = usePagina<Visita>(mostrandoListado && usarListado ? rutaListado : null, token, recarga, { limit: 1 })
+  const hoyProgramadas = usePagina<Visita>(mostrandoListado && usarListado ? rutaListado : null, token, recarga, { limit: 1, filters: { ...filtrosHoy, estado: 'programada' } })
+  const proximas = usePagina<Visita>(mostrandoListado && usarListado && vista !== 'proximas' ? rutaListado : null, token, recarga, { limit: 1, filters: filtrosProximas })
   const detalle = useDatos<Visita>(ruta, token, recarga)
   // El listado ya contiene la autorización, los participantes y los adultos visibles.
   // Solo sirve como respaldo durante la desconexión y no incluye observaciones clínicas.
@@ -329,8 +233,9 @@ export function Visitas({ base, token, cuenta, usuarioId, cola }: OperacionProps
   const puedeCapturar = enLinea || permite(cuenta, 'sync:usar')
   const registrando = accion === 'registrar' && abierta && enCurso && puedeRegistrar && !registroPendiente
   const abrir = (visitaId: string, panel?: string) => setParams({ visita: visitaId, ...(panel ? { accion: panel } : {}) })
-  const volver = () => setParams({})
-  const cambiarVista = (nueva: Vista) => { setVista(nueva); setAviso('') }
+  const volver = () => { setSolicitudInicial(undefined); setParams({}) }
+  const mostrarSolicitudes = () => { setSolicitudInicial(undefined); setParams({ accion: 'solicitudes' }) }
+  const cambiarVista = (nueva: Vista) => { setVista(nueva); setAviso(''); if (viendoHistorial && nueva !== 'historial') volver() }
   const enviar = async (tipo: 'iniciar' | 'registrar', datos: object = {}) => {
     if (!visita || !ruta || !puedeRegistrar) return
     if (!navigator.onLine && permite(cuenta, 'sync:usar')) {
@@ -353,24 +258,23 @@ export function Visitas({ base, token, cuenta, usuarioId, cola }: OperacionProps
       {pendientes.some((captura) => captura.rechazada) && <Button size="sm" variant="outline" onClick={() => cola.quitarRechazadas(cuenta.cuenta_id, 'visita')}>Descartar capturas rechazadas</Button>}
     </div>}
     {aviso && <p className="rounded-sm bg-teal-100 p-3 text-sm font-semibold" role="status">{aviso}</p>}
-    {viendoSolicitudes && <SolicitudesExternas base={base} token={token}
+    {viendoSolicitudes && <SolicitudesExternas base={base} token={token} inicial={solicitudInicial}
       volver={volver} abrirVisita={(visitaId) => { actualizar(); abrir(visitaId) }} />}
-    {viendoCalendario && <>
-      <Button variant="ghost" className="justify-self-start" onClick={volver}>Volver a visitas</Button>
-      <label className="grid max-w-xs gap-1 text-sm font-semibold">Fecha del calendario
-        <input type="date" value={diaCalendario} onChange={(e) => setDiaCalendario(e.target.value)} className="min-h-12 rounded-sm border border-line bg-surface px-3 text-base" />
-      </label>
-      <CalendarioVisitas base={base} token={token} fecha={diaCalendario} abrir={abrir} />
-    </>}
+    {(viendoCalendario || viendoHistorial) && <Button variant="ghost" className="justify-self-start" onClick={volver}>Volver al panel de visitas</Button>}
+    {puedeRevisarSolicitudes && ((mostrandoListado && !viendoHistorial) || viendoCalendario) && <PanelVisitas
+      base={base} token={token} organizacion={cuenta.nombre} fecha={diaCalendario} cambiarFecha={setDiaCalendario} revision={recarga}
+      abrir={abrir} programar={puedeProgramar ? (fecha) => { if (fecha) setDiaCalendario(fecha); setParams({ accion: 'programar', ...(fecha ? { fecha } : {}) }) } : undefined}
+      solicitudes={mostrarSolicitudes} revisar={(solicitud) => { setSolicitudInicial(solicitud); setParams({ accion: 'solicitudes' }) }}
+      historial={() => { setVista('historial'); setParams({ accion: 'historial' }) }} calendario={() => setParams({ accion: 'calendario' })} soloCalendario={viendoCalendario} />}
     {(id || programando) && <Button size="sm" variant="ghost" className="justify-self-start" icon={<ArrowLeft size={18} aria-hidden />}
       onClick={() => id && (registrando || reprogramando || accion === 'cancelar') ? abrir(id) : volver()}>{registrando || reprogramando || accion === 'cancelar' ? 'Volver al detalle' : 'Volver a visitas'}</Button>}
-    {programando && <Programar base={base} token={token} cuenta={cuenta} volver={volver} listo={(creada, cantidad) => {
+    {programando && <ProgramarVisita base={base} token={token} cuenta={cuenta} fechaInicial={params.get('fecha') ?? diaCalendario} solicitudes={mostrarSolicitudes} volver={volver} listo={(creada, cantidad) => {
       actualizar()
       setAviso(cantidad ? `${cantidad} visita(s) programada(s) con sus participantes autorizados.` : 'Visita programada y pendiente de autorización.')
       setVista(creada.fecha === hoy ? 'hoy' : 'proximas')
       abrir(creada.visita_id)
     }} />}
-    {mostrandoListado && <>
+    {mostrandoListado && usarListado && <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-bold text-ink">Mis visitas</h2>
         <div className="flex flex-wrap gap-2">
@@ -380,8 +284,8 @@ export function Visitas({ base, token, cuenta, usuarioId, cola }: OperacionProps
         </div>
       </div>
       <ResumenVisitas hoy={hoyProgramadas.datos?.meta.total} proximas={(vista === 'proximas' ? listado : proximas).datos?.meta.total} total={total.datos?.meta.total} />
-      <Segmented label="Período de visitas" options={VISTAS} value={vista} onChange={cambiarVista} />
-      {vista === 'historial' && <SelectField label="Estado del historial" value={historial} onChange={(evento) => setHistorial(evento.currentTarget.value)} options={[
+      <Segmented label="Período de visitas" options={VISTAS} value={viendoHistorial ? 'historial' : vista} onChange={cambiarVista} />
+      {(vista === 'historial' || viendoHistorial) && <SelectField label="Estado del historial" value={historial} onChange={(evento) => setHistorial(evento.currentTarget.value)} options={[
         { value: 'completada', label: 'Completadas' }, { value: 'cancelada', label: 'Canceladas' },
         { value: 'programada', label: 'Programadas de fechas anteriores' }, { value: 'en_curso', label: 'En curso de fechas anteriores' },
       ]} />}
